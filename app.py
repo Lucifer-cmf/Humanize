@@ -7,8 +7,8 @@ from transformers import pipeline
 paraphraser = pipeline(
     "text2text-generation",
     model="Vamsi/T5_Paraphrase_Paws",
-    device=-1,  # ensures CPU is used
-    use_fast=False 
+    device=-1  # ensures CPU is used
+    
 )
  
 def clean_text(text: str) -> str:
