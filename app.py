@@ -8,6 +8,7 @@ paraphraser = pipeline(
     "text2text-generation",
     model="Vamsi/T5_Paraphrase_Paws",
     device=-1  # ensures CPU is used
+    use_fast=False 
 )
  
 def clean_text(text: str) -> str:
