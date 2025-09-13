@@ -6,6 +6,7 @@ import nltk
 # --- NLTK SETUP ---
 # Download the sentence tokenizer model (only needs to be done once)
 try:
+    nltk.download('punkt')
     nltk.data.find('tokenizers/punkt')
 except nltk.downloader.DownloadError:
     st.info("First-time setup: Downloading NLTK sentence tokenizer...")
