@@ -5,12 +5,17 @@ import nltk
 
 # --- NLTK SETUP ---
 # Download the sentence tokenizer model (only needs to be done once)
+# --- NLTK SETUP ---
 try:
-    nltk.data.find('tokenizers/punkt')
+    nltk.data.find("tokenizers/punkt")
+    nltk.data.find("tokenizers/punkt_tab")
 except LookupError:
     st.info("First-time setup: Downloading NLTK sentence tokenizer...")
-    nltk.download('punkt')
+    nltk.download("punkt")
+    nltk.download("punkt_tab")
     st.success("Setup complete!")
+
+
 
 
 # --- NLP MODEL ---
