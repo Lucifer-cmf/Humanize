@@ -1,7 +1,12 @@
-streamlit
-transformers
-torch
-tiktoken
-sentencepiece
-nltk
-spacy
+# Web app framework
+streamlit==1.39.0
+
+# NLP frameworks
+transformers==4.45.1
+torch==2.4.1
+tiktoken==0.7.0
+sentencepiece==0.2.0
+
+# Traditional NLP tools
+nltk==3.9.1
+spacy==3.8.2
