@@ -22,7 +22,7 @@ def load_paraphraser_model():
     # Using t5-large for better "humanization" and stylistic control
     # You can change this to other suitable models on Hugging Face if needed,
     # e.g., "humarif/chatgpt-paraphraser-long" or "tuner007/pegasus_paraphrase"
-    model_name = "humarif/chatgpt-paraphraser-long" 
+    model_name = "t5-large" 
     
     # Check if a specific model name is set in environment variables (for deployment flexibility)
     if os.getenv("PARAPHRASER_MODEL_NAME"):
