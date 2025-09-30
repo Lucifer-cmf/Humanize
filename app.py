@@ -1,171 +1,131 @@
+# app.py
+
 import streamlit as st
-import re
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 import nltk
-import os
+from nltk.corpus import wordnet
+import random
+import spacy
 
-# --- NLTK SETUP ---
-# Download the sentence tokenizer model (only needs to be done once)
+# --- First-time setup for NLTK and spaCy ---
+# You need to run this setup once locally, or include it in your deployment setup.
 try:
-    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('corpora/wordnet.zip')
+    nltk.data.find('taggers/averaged_perceptron_tagger.zip')
 except nltk.downloader.DownloadError:
-    st.info("First-time setup: Downloading NLTK sentence tokenizer...")
-    nltk.download('punkt')
-    st.success("Setup complete!")
+    st.info("Downloading necessary NLTK data... This will run only once.")
+    nltk.download('wordnet', quiet=True)
+    nltk.download('punkt', quiet=True)
+    nltk.download('averaged_perceptron_tagger', quiet=True)
 
-# --- NLP MODEL ---
-# Using st.cache_resource to load the model only once
-@st.cache_resource
-def load_paraphraser_model():
-    """Loads a more capable paraphrasing model and returns the pipeline."""
+# Load spaCy model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    st.info("Downloading necessary spaCy model...")
+    from spacy.cli import download
+    download("en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
+
+
+# --- Paraphrasing and "Humanizing" Functions (Non-AI) ---
+
+def get_synonyms(word):
+    """Finds synonyms for a word using NLTK WordNet."""
+    synonyms = set()
+    for syn in wordnet.synsets(word):
+        for lemma in syn.lemmas():
+            synonyms.add(lemma.name().replace('_', ' '))
+    if word in synonyms:
+        synonyms.remove(word)
+    return list(synonyms)
+
+def synonym_replacer(text, replacement_prob=0.2):
+    """Replaces words in the text with synonyms."""
+    words = nltk.word_tokenize(text)
+    tagged_words = nltk.pos_tag(words)
+    new_words = []
     
-    # Using t5-large for better "humanization" and stylistic control
-    # You can change this to other suitable models on Hugging Face if needed,
-    # e.g., "humarif/chatgpt-paraphraser-long" or "tuner007/pegasus_paraphrase"
-    model_name = "t5-large" 
+    for word, tag in tagged_words:
+        # Only replace nouns, verbs, adverbs, and adjectives to maintain sentence structure
+        if tag.startswith(('NN', 'VB', 'JJ', 'RB')):
+            if random.random() < replacement_prob:
+                synonyms = get_synonyms(word)
+                if synonyms:
+                    new_word = random.choice(synonyms)
+                    new_words.append(new_word)
+                    continue
+        new_words.append(word)
+        
+    # Reconstruct the sentence (this is a simplified approach)
+    return ' '.join(new_words).replace(" .", ".").replace(" ,", ",")
+
+def shuffle_sentences(text):
+    """Shuffles the order of sentences in a paragraph."""
+    sentences = nltk.sent_tokenize(text)
+    random.shuffle(sentences)
+    return ' '.join(sentences)
+
+# --- Streamlit App UI ---
+
+st.set_page_config(layout="wide", page_title="Non-AI Blog Assistant")
+
+st.title("🛠️ Rule-Based Blog Assembler & Paraphraser")
+st.markdown("This tool uses templates and rule-based transformations (like synonym replacement) to create and modify blog content without generative AI.")
+
+# --- Blog Generation Section ---
+st.header("1. Assemble Your Blog Post")
+
+blog_type = st.selectbox("Choose a Blog Type", ["Listicle (5 Points)", "How-To Guide"])
+
+# Template-based input fields
+if blog_type == "Listicle (5 Points)":
+    st.subheader("Fill in the details for your Listicle:")
+    title = st.text_input("Blog Title", "5 Essential Tips for Great Public Speaking")
+    intro = st.text_area("Introduction Paragraph", "Public speaking can be daunting, but with a few key strategies, anyone can become a confident and effective speaker. Here are our top five tips to help you master the art.")
     
-    # Check if a specific model name is set in environment variables (for deployment flexibility)
-    if os.getenv("PARAPHRASER_MODEL_NAME"):
-        model_name = os.getenv("PARAPHRASER_MODEL_NAME")
+    points = []
+    for i in range(5):
+        point_title = st.text_input(f"Title for Point {i+1}", key=f"p_title_{i}")
+        point_desc = st.text_area(f"Description for Point {i+1}", key=f"p_desc_{i}")
+        points.append({"title": point_title, "desc": point_desc})
+        
+    conclusion = st.text_area("Conclusion Paragraph", "By keeping these tips in mind, you'll be well on your way to delivering powerful and memorable presentations. Practice is key, so take every opportunity to speak and refine your skills.")
 
-    st.write(f"Loading model: {model_name}...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    if st.button("Assemble Blog Post", type="primary"):
+        # --- Assemble the blog from the template ---
+        assembled_blog = f"# {title}\n\n"
+        assembled_blog += f"{intro}\n\n"
+        for i, p in enumerate(points):
+            assembled_blog += f"## {i+1}. {p['title']}\n"
+            assembled_blog += f"{p['desc']}\n\n"
+        assembled_blog += f"### Conclusion\n{conclusion}"
+        
+        st.session_state['assembled_blog'] = assembled_blog
+        st.success("Blog assembled successfully! Now you can paraphrase it below.")
 
-    return pipeline(
-        "text2text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        device=-1,  # -1 for CPU, 0 for GPU (if available)
-        max_new_tokens=256, # Increased default max_new_tokens for potentially longer, more varied outputs per sentence.
-    )
+# Display assembled blog if it exists
+if 'assembled_blog' in st.session_state:
+    st.subheader("Assembled Blog Content")
+    st.text_area("Generated Content", st.session_state['assembled_blog'], height=300)
 
-paraphraser_pipeline = load_paraphraser_model()
-
-
-def clean_text(text: str) -> str:
-    """
-    Remove unwanted unicode characters and normalize whitespace.
-    """
-    text = text.encode("ascii", "ignore").decode()  # remove unicode
-    text = re.sub(r'\s+', ' ', text).strip()        # normalize whitespace
-    return text
-
-
-def humanize_long_text(text: str, batch_size: int = 5) -> str:
-    """
-    Paraphrases long AI-generated text by processing it in sentence batches
-    to preserve content length and structure, aiming to reduce AI detection score
-    and adopt a blog-like style.
-
-    Args:
-        text (str): The AI-generated text to humanize.
-        batch_size (int): The number of sentences to process in each batch.
-
-    Returns:
-        str: The humanized text in a more blog-like style.
-    """
-    # 1. Clean and split the text into sentences
-    cleaned_text = clean_text(text)
-    sentences = nltk.sent_tokenize(cleaned_text)
-
-    if not sentences:
-        return ""
-
-    # 2. Process sentences in batches for efficiency
-    humanized_sentences = []
+    # --- Paraphrasing Section ---
+    st.header("2. Paraphrase and 'Humanize' the Text")
     
-    # Initialize a Streamlit spinner for overall processing feedback
-    with st.spinner("Processing text... This may take a moment for longer inputs."):
-        progress_text = "Operation in progress. Please wait."
-        progress_bar = st.progress(0, text=progress_text)
-        total_batches = (len(sentences) + batch_size - 1) // batch_size
+    text_to_paraphrase = st.session_state.get('assembled_blog', '')
+    
+    if text_to_paraphrase:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Original Text")
+            st.text_area("Original", text_to_paraphrase, height=300, key="original_text_display")
 
-        for i in range(0, len(sentences), batch_size):
-            batch = sentences[i:i+batch_size]
+        with col2:
+            st.markdown("#### Transformed Text")
+            # Apply transformations
+            paraphrased_text = synonym_replacer(text_to_paraphrase, replacement_prob=0.15)
+            # You could chain more transformations here, e.g., sentence shuffling
             
-            # --- MODIFIED PREFIX FOR BLOG STYLE ---
-            # Instructions: rewrite for a blog, conversational, engaging, simpler language, 
-            # address reader, avoid overly formal phrasing, focus on flow and readability.
-            prefixed_batch = [
-                f"rewrite this for a blog post. Make it conversational, engaging, "
-                f"use simpler language, and address the reader directly (using 'you'). "
-                f"Avoid overly formal phrasing and focus on natural flow and readability: {sentence}" 
-                for sentence in batch
-            ]
-            # --- END MODIFIED PREFIX ---
-
-            # 3. Paraphrase the batch
-            try:
-                results = paraphraser_pipeline(
-                    prefixed_batch,
-                    num_return_sequences=1,
-                    do_sample=True,
-                    top_k=100, # Increased top_k for more diverse sampling
-                    top_p=0.95, # Increased top_p for more diverse sampling
-                    temperature=0.7 # Add temperature for creativity, adjust as needed
-                )
-                # Extract the generated text from the results
-                paraphrased_batch = [result['generated_text'] for result in results]
-                humanized_sentences.extend(paraphrased_batch)
-            except Exception as e:
-                st.error(f"An error occurred during paraphrasing batch {i//batch_size + 1}: {e}")
-                # In case of an error, append the original batch to avoid losing content.
-                humanized_sentences.extend(batch)
-
-            # 4. Update progress bar
-            progress_percentage = min((i + batch_size) / len(sentences), 1.0)
-            progress_bar.progress(progress_percentage, text=f"Humanizing... Batch {i//batch_size + 1}/{total_batches} complete.")
-
-        progress_bar.empty() # Remove the progress bar after completion
-    
-    # 5. Join the humanized sentences back into a single text
-    # This simple join still creates a continuous string. 
-    # For more defined paragraphs (like in a blog), you might want to introduce
-    # double newlines every X sentences. However, this is a heuristic and
-    # not semantically driven, so it might break flow in some cases.
-    # For now, we'll stick to a simple space join, letting the prompt guide sentence-level style.
-    return " ".join(humanized_sentences)
-
-
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="AI Text Humanizer", page_icon="📝", layout="wide")
-
-st.title("📝 AI Text Humanizer & Undetectable Rewriter (Blog Style)")
-st.markdown(
-    """
-    Paste AI-generated content below (even long articles!), and I'll rewrite it to sound more natural, 
-    human-like, and less detectable by AI content checkers. The output will aim for a **conversational, 
-    engaging blog-post style**.
-    """
-)
-
-# Input text
-input_text = st.text_area("Enter AI-generated text here (up to 2000+ words recommended for optimal results):", height=300)
-
-if st.button("Humanize & Rewrite", type="primary"):
-    if input_text.strip():
-        # Add a check for extremely long text that might hit Streamlit or model limits
-        if len(input_text.split()) > 3000: # Example limit, adjust as needed
-            st.warning("Input text is very long. Processing might take a significant amount of time or hit resource limits. Consider breaking it into smaller chunks.")
-
-        humanized = humanize_long_text(input_text)
-
-        st.subheader("✅ Humanized & Rewritten Output")
-        st.markdown(humanized) # Use st.markdown for potentially better formatting if generated text includes it.
-
-        st.download_button(
-            label="Download Rewritten Text",
-            data=humanized.encode("utf-8"), # Ensure data is bytes for download
-            file_name="humanized_blog_style_text.txt",
-            mime="text/plain"
-        )
-    else:
-        st.warning("⚠️ Please enter some text first to humanize!")
-
-st.markdown("---")
-st.info(
-    "**Note:** While this tool aims to significantly reduce AI detection scores and produce a blog-like style, "
-    "no automated tool can guarantee 100% human-like text or complete undetectability. "
-    "Human review remains the gold standard for critical content."
-)
+            st.text_area("Paraphrased", paraphrased_text, height=300, key="paraphrased_text_display")
+            
+        st.info("The transformed text uses synonym replacement to alter the content. More complex rules like voice change could be added for better results.")
