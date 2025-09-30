@@ -4,12 +4,14 @@ from transformers import pipeline
 import nltk
 
 # --- NLTK SETUP ---
-# Download the sentence tokenizer model (only needs to be done once)
+# Correctly handle the case where the resource is not found.
+# nltk.data.find() raises a LookupError if it can't find the resource.
 try:
     nltk.data.find('tokenizers/punkt')
-except nltk.downloader.DownloadError:
+except LookupError:
     st.info("First-time setup: Downloading NLTK sentence tokenizer...")
-    nltk.download('punkt')
+    with st.spinner("Downloading... This may take a moment."):
+        nltk.download('punkt')
     st.success("Setup complete!")
 
 
@@ -109,8 +111,9 @@ def humanize_long_text(text: str, batch_size: int = 4) -> str:
             humanized_blocks.append(humanized_block)
         
         # 5. Update progress bar based on blocks processed
-        progress_percentage = (i + 1) / total_blocks
-        progress_bar.progress(progress_percentage, text=f"Processing... Block {i+1}/{total_blocks}")
+        if total_blocks > 0:
+            progress_percentage = (i + 1) / total_blocks
+            progress_bar.progress(progress_percentage, text=f"Processing... Block {i+1}/{total_blocks}")
 
     progress_bar.empty() # Remove the progress bar after completion
     
@@ -143,7 +146,7 @@ if st.button("Humanize Text", type="primary", use_container_width=True):
 
         st.subheader("✅ Humanized Blog-Style Output")
         
-        # NEW: Display the output in a styled container using st.markdown
+        # Display the output in a styled container using st.markdown
         # This will correctly render headings, lists, bold text, etc.
         with st.container(border=True):
             st.markdown(humanized)
