@@ -9,9 +9,9 @@ import spacy
 # --- First-time setup for NLTK and spaCy ---
 # You need to run this setup once locally, or include it in your deployment setup.
 try:
-    nltk.data.find('corpora/wordnet.zip')
-    nltk.data.find('taggers/averaged_perceptron_tagger.zip')
-except nltk.downloader:
+    nltk.data.find('corpora/wordnet')
+    nltk.data.find('taggers/averaged_perceptron_tagger')
+except LookupError:
     st.info("Downloading necessary NLTK data... This will run only once.")
     nltk.download('wordnet', quiet=True)
     nltk.download('punkt', quiet=True)
