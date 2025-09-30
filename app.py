@@ -1,5 +1,3 @@
---- START OF FILE app.py ---
-
 import streamlit as st
 import re
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
