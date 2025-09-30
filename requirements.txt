@@ -4,3 +4,4 @@ torch
 tiktoken
 sentencepiece
 nltk
+spacy
