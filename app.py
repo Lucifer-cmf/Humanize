@@ -5,17 +5,12 @@ import nltk
 
 # --- NLTK SETUP ---
 # Download the sentence tokenizer model (only needs to be done once)
-# --- NLTK SETUP ---
 try:
-    nltk.data.find("tokenizers/punkt")
-    nltk.data.find("tokenizers/punkt_tab")
-except LookupError:
+    nltk.data.find('tokenizers/punkt')
+except nltk.downloader.DownloadError:
     st.info("First-time setup: Downloading NLTK sentence tokenizer...")
-    nltk.download("punkt")
-    nltk.download("punkt_tab")
+    nltk.download('punkt')
     st.success("Setup complete!")
-
-
 
 
 # --- NLP MODEL ---
@@ -26,7 +21,7 @@ def load_paraphraser():
     return pipeline(
         "text2text-generation",
         model="Vamsi/T5_Paraphrase_Paws",
-        device=-1  # ensures CPU is used
+        device=-1  # Use -1 for CPU, or 0 for GPU if available
     )
 
 paraphraser = load_paraphraser()
@@ -41,92 +36,124 @@ def clean_text(text: str) -> str:
     return text
 
 
-def humanize_long_text(text: str, batch_size: int = 5) -> str:
+def humanize_long_text(text: str, batch_size: int = 4) -> str:
     """
-    Paraphrases long AI-generated text by processing it in sentence batches
-    to preserve content length and structure.
+    Paraphrases long AI-generated text by processing it paragraph by paragraph
+    to preserve content structure, headings, and lists for a blog-style output.
 
     Args:
         text (str): The AI-generated text to humanize.
         batch_size (int): The number of sentences to process in each batch.
 
     Returns:
-        str: The humanized text.
+        str: The humanized text with preserved paragraph structure.
     """
-    # 1. Clean and split the text into sentences
-    cleaned_text = clean_text(text)
-    sentences = nltk.sent_tokenize(cleaned_text)
-
-    if not sentences:
-        return ""
-
-    # 2. Process sentences in batches for efficiency
-    humanized_sentences = []
+    # 1. Split the text into blocks (paragraphs, headings, list items, etc.)
+    # This preserves the original structure of the document.
+    blocks = text.split('\n')
+    humanized_blocks = []
+    
     progress_bar = st.progress(0, text="Humanizing text...")
-    total_batches = (len(sentences) + batch_size - 1) // batch_size
+    total_blocks = len(blocks)
 
-    for i in range(0, len(sentences), batch_size):
-        batch = sentences[i:i+batch_size]
+    for i, block in enumerate(blocks):
+        # 2. Process each block
+        stripped_block = block.strip()
+
+        # Keep empty lines to preserve paragraph spacing
+        if not stripped_block:
+            humanized_blocks.append("")
+            continue
+
+        # 3. Preserve Markdown structure: Don't paraphrase headings, lists, or blockquotes
+        # Also, skip very short lines that are unlikely to be full paragraphs.
+        is_markdown_or_short = (
+            stripped_block.startswith(('#', '*', '-', '>')) or
+            re.match(r'^\d+\.\s', stripped_block) or
+            len(stripped_block.split()) < 5
+        )
+
+        if is_markdown_or_short:
+            humanized_blocks.append(block) # Keep the original block
+        else:
+            # This is a paragraph we should humanize
+            sentences = nltk.sent_tokenize(stripped_block)
+            if not sentences:
+                continue
+
+            paraphrased_sentences_for_block = []
+            # Process the paragraph's sentences in batches
+            for j in range(0, len(sentences), batch_size):
+                batch = sentences[j:j+batch_size]
+                
+                # The model expects this specific prefix
+                prefixed_batch = [f"paraphrase: {clean_text(sentence)}" for sentence in batch]
+
+                try:
+                    results = paraphraser(
+                        prefixed_batch,
+                        max_new_tokens=128,
+                        num_return_sequences=1,
+                        do_sample=True,
+                        top_k=100,
+                        top_p=0.95,
+                    )
+                    paraphrased_batch = [result['generated_text'] for result in results]
+                    paraphrased_sentences_for_block.extend(paraphrased_batch)
+                except Exception as e:
+                    st.error(f"An error occurred during paraphrasing: {e}")
+                    paraphrased_sentences_for_block.extend(batch) # Fallback to original
+
+            # 4. Reconstruct the humanized paragraph
+            humanized_block = " ".join(paraphrased_sentences_for_block)
+            humanized_blocks.append(humanized_block)
         
-        # The model expects this specific prefix
-        prefixed_batch = [f"paraphrase: {sentence}" for sentence in batch]
-
-        # 3. Paraphrase the batch
-        try:
-            results = paraphraser(
-                prefixed_batch,
-                max_new_tokens=128,  # Max tokens *per sentence* in the batch
-                num_return_sequences=1,
-                do_sample=True,
-                top_k=100,
-                top_p=0.95,
-            )
-            # Extract the generated text from the results
-            paraphrased_batch = [result['generated_text'] for result in results]
-            humanized_sentences.extend(paraphrased_batch)
-        except Exception as e:
-            st.error(f"An error occurred during paraphrasing: {e}")
-            # In case of an error, you might want to append the original batch
-            # to avoid losing content.
-            humanized_sentences.extend(batch)
-
-        # 4. Update progress bar
-        progress_percentage = min((i + batch_size) / len(sentences), 1.0)
-        progress_bar.progress(progress_percentage, text=f"Humanizing... Batch {i//batch_size + 1}/{total_batches} complete.")
+        # 5. Update progress bar based on blocks processed
+        progress_percentage = (i + 1) / total_blocks
+        progress_bar.progress(progress_percentage, text=f"Processing... Block {i+1}/{total_blocks}")
 
     progress_bar.empty() # Remove the progress bar after completion
     
-    # 5. Join the humanized sentences back into a single text
-    return " ".join(humanized_sentences)
+    # 6. Join the processed blocks back together with newlines
+    return "\n".join(humanized_blocks)
 
 
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="AI Text Humanizer", page_icon="📝", layout="wide")
 
 st.title("📝 AI Text Humanizer")
-st.write(
-    "Paste AI-generated content below (even long articles!), and I'll clean and "
-    "humanize it without losing the original meaning or length."
+st.markdown(
+    "Paste AI-generated content below—including articles with **headings** and **lists**! "
+    "I'll paraphrase the paragraphs to sound more human while preserving the original structure and length."
 )
 
 # Input text
-input_text = st.text_area("Enter AI-generated text (up to 2000+ words):", height=250)
+input_text = st.text_area(
+    "Enter AI-generated text here (supports Markdown for structure):", 
+    height=300,
+    placeholder="## My Blog Post Title\n\nThis is the first paragraph generated by an AI. It often sounds a bit robotic.\n\n* This is a list item.\n* And another one.\n\nThis second paragraph needs some human touch as well to make it more engaging for the reader."
+)
 
-if st.button("Humanize", type="primary"):
+if st.button("Humanize Text", type="primary", use_container_width=True):
     if input_text.strip():
-        # The spinner is good for the initial setup, but the progress bar
-        # will handle the feedback during the main processing.
-        with st.spinner("Preparing to process..."):
+        # The spinner is good for the initial model load, but the progress bar
+        # will handle feedback during the main processing.
+        with st.spinner("Warming up the humanizer..."):
             humanized = humanize_long_text(input_text)
 
-        st.subheader("✅ Humanized Output")
-        st.write(humanized)
+        st.subheader("✅ Humanized Blog-Style Output")
+        
+        # NEW: Display the output in a styled container using st.markdown
+        # This will correctly render headings, lists, bold text, etc.
+        with st.container(border=True):
+            st.markdown(humanized)
 
         st.download_button(
-            label="Download Result",
+            label="Download Result as a Markdown File",
             data=humanized,
-            file_name="humanized_text.txt",
-            mime="text/plain"
+            file_name="humanized_text.md", # Changed to .md for clarity
+            mime="text/markdown",
+            use_container_width=True
         )
     else:
         st.warning("⚠️ Please enter some text first!")
