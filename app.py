@@ -7,11 +7,15 @@ import nltk
 # Correctly handle the case where the resource is not found.
 # nltk.data.find() raises a LookupError if it can't find the resource.
 try:
+    # We check for the main 'punkt' resource. If it's missing, we download both it
+    # and its dependency 'punkt_tab'.
     nltk.data.find('tokenizers/punkt')
+    nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
-    st.info("First-time setup: Downloading NLTK sentence tokenizer...")
+    st.info("First-time setup: Downloading NLTK resources...")
     with st.spinner("Downloading... This may take a moment."):
         nltk.download('punkt')
+        nltk.download('punkt_tab')
     st.success("Setup complete!")
 
 
@@ -51,12 +55,14 @@ def humanize_long_text(text: str, batch_size: int = 4) -> str:
         str: The humanized text with preserved paragraph structure.
     """
     # 1. Split the text into blocks (paragraphs, headings, list items, etc.)
-    # This preserves the original structure of the document.
     blocks = text.split('\n')
     humanized_blocks = []
     
-    progress_bar = st.progress(0, text="Humanizing text...")
     total_blocks = len(blocks)
+    if total_blocks == 0:
+        return ""
+
+    progress_bar = st.progress(0, text="Humanizing text...")
 
     for i, block in enumerate(blocks):
         # 2. Process each block
@@ -68,7 +74,6 @@ def humanize_long_text(text: str, batch_size: int = 4) -> str:
             continue
 
         # 3. Preserve Markdown structure: Don't paraphrase headings, lists, or blockquotes
-        # Also, skip very short lines that are unlikely to be full paragraphs.
         is_markdown_or_short = (
             stripped_block.startswith(('#', '*', '-', '>')) or
             re.match(r'^\d+\.\s', stripped_block) or
@@ -87,8 +92,6 @@ def humanize_long_text(text: str, batch_size: int = 4) -> str:
             # Process the paragraph's sentences in batches
             for j in range(0, len(sentences), batch_size):
                 batch = sentences[j:j+batch_size]
-                
-                # The model expects this specific prefix
                 prefixed_batch = [f"paraphrase: {clean_text(sentence)}" for sentence in batch]
 
                 try:
@@ -111,9 +114,8 @@ def humanize_long_text(text: str, batch_size: int = 4) -> str:
             humanized_blocks.append(humanized_block)
         
         # 5. Update progress bar based on blocks processed
-        if total_blocks > 0:
-            progress_percentage = (i + 1) / total_blocks
-            progress_bar.progress(progress_percentage, text=f"Processing... Block {i+1}/{total_blocks}")
+        progress_percentage = (i + 1) / total_blocks
+        progress_bar.progress(progress_percentage, text=f"Processing... Block {i+1}/{total_blocks}")
 
     progress_bar.empty() # Remove the progress bar after completion
     
@@ -139,22 +141,18 @@ input_text = st.text_area(
 
 if st.button("Humanize Text", type="primary", use_container_width=True):
     if input_text.strip():
-        # The spinner is good for the initial model load, but the progress bar
-        # will handle feedback during the main processing.
         with st.spinner("Warming up the humanizer..."):
             humanized = humanize_long_text(input_text)
 
         st.subheader("✅ Humanized Blog-Style Output")
         
-        # Display the output in a styled container using st.markdown
-        # This will correctly render headings, lists, bold text, etc.
         with st.container(border=True):
             st.markdown(humanized)
 
         st.download_button(
             label="Download Result as a Markdown File",
             data=humanized,
-            file_name="humanized_text.md", # Changed to .md for clarity
+            file_name="humanized_text.md",
             mime="text/markdown",
             use_container_width=True
         )
