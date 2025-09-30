@@ -11,7 +11,7 @@ import spacy
 try:
     nltk.data.find('corpora/wordnet.zip')
     nltk.data.find('taggers/averaged_perceptron_tagger.zip')
-except nltk.downloader.DownloadError:
+except nltk.downloader:
     st.info("Downloading necessary NLTK data... This will run only once.")
     nltk.download('wordnet', quiet=True)
     nltk.download('punkt', quiet=True)
